@@ -1,2 +1,8 @@
+-- store foo = 10
 10 $foo !
+
+-- load and print foo
+$foo ?
+
+-- print 1 + value at foo
 1 $foo @ + .

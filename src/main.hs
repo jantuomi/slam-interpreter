@@ -41,10 +41,13 @@ interpretWord ((LVariable a) : b : stack) dict word@(LSymbol "!") =
    in pure (stack, newDict)
 interpretWord ((LVariable a) : stack) dict word@(LSymbol "@") =
   let lookupWord = dict ! a
-      newDict = M.delete a dict
-   in pure (lookupWord : stack, newDict)
+   in pure (lookupWord : stack, dict)
 interpretWord (a : stack) dict word@(LSymbol ".") = do
   putStrLn $ reprWord a
+  pure (stack, dict)
+interpretWord ((LVariable a) : stack) dict word@(LSymbol "?") = do
+  let lookupWord = dict ! a
+  putStrLn $ reprWord lookupWord
   pure (stack, dict)
 -- math
 interpretWord ((LInteger a) : (LInteger b) : stack) dict word@(LSymbol "+") = pure $ (LInteger (a + b) : stack, dict)
@@ -58,7 +61,8 @@ main = do
   putStrLn $ "[info] executing file " ++ filename
   source <- readFile filename
   putStrLn source
-  let parsed = parseSource source
+  let sourceWoComments = source $> lines .> filter (\line -> not ("--" `isPrefixOf` line)) .> unlines
+  let parsed = parseSource sourceWoComments
   putStrLn $ "[info] parsed words:\n" ++ show parsed
   putStrLn "[info] interpreter output:"
   interpretSource [] M.empty parsed
