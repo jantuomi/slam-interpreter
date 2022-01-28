@@ -1,0 +1,7 @@
+define PI       3.141593 ;
+
+define area     dup * PI * ;
+define circumf  PI * 2.0 * ;
+
+10.0 area round .
+10.0 circumf round .

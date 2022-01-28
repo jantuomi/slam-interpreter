@@ -1,4 +1,5 @@
 module Utils where
+import qualified Data.Bifunctor as B
 
 (.>) = flip (.)
 
@@ -28,3 +29,6 @@ isIntStr str =
    in case ir of
         Just _ -> True
         Nothing -> False
+
+breakOn :: (a -> Bool) -> [a] -> ([a], [a])
+breakOn cond xs = break cond xs $> B.second (drop 1)

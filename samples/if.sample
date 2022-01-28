@@ -1,0 +1,7 @@
+define eq10?
+    10 eq?
+        [ true ]
+        [ false ] cond ;
+
+10 eq10? .
+5 eq10? .
