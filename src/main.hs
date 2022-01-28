@@ -1,7 +1,7 @@
 module Main where
 
 import Data.Char
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Map (Map, (!))
 import qualified Data.Map as M
 import Debug.Trace (trace, traceShow)
@@ -14,11 +14,13 @@ getFilename (f : fs) = f
 data LWord
   = LSymbol String
   | LInteger Integer
+  | LFloat Double
   | LVariable String
   deriving (Show, Eq)
 
 reprWord (LSymbol a) = a
 reprWord (LInteger a) = show a
+reprWord (LFloat a) = show a
 reprWord (LVariable a) = a
 
 data LState = LState
@@ -31,7 +33,8 @@ data LState = LState
   deriving (Show)
 
 parseWord rawStr
-  | all isDigit rawStr = LInteger (read rawStr)
+  | isIntStr rawStr = LInteger (read rawStr)
+  | isFloatStr rawStr = LFloat $ read rawStr
   | "$" `isPrefixOf` rawStr = LVariable $ tail rawStr
   | otherwise = LSymbol rawStr
 
@@ -65,10 +68,12 @@ interpretWord state@LState {lDefs = defs, lStack = stack} word@(LSymbol ";") =
           }
 interpretWord state@LState {lStack = stack, lEvalMode = False} word = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LInteger value) = pure $ state {lStack = word : stack}
+interpretWord state@LState {lStack = stack} word@(LFloat value) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LVariable value) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LSymbol "dup") =
-  let (stackHead : stack') = stack
-   in pure $ state {lStack = stackHead : stackHead : stack}
+  pure $ state {lStack = head stack : stack}
+interpretWord state@LState {lStack = stack} word@(LSymbol "drop") =
+  pure $ state {lStack = tail stack}
 -- variables & printing
 interpretWord state@LState {lStack = (LVariable a) : b : stack, lDict = dict} word@(LSymbol "!") =
   let newDict = M.insert a b dict
@@ -84,9 +89,18 @@ interpretWord state@LState {lStack = ((LVariable a) : stack), lDict = dict} word
   putStrLn $ reprWord lookupWord
   pure $ state {lStack = stack}
 -- math
+interpretWord state@LState {lStack = (LInteger a) : stack} word@(LSymbol "float") =
+  pure $ state {lStack = LFloat (fromIntegral a) : stack}
+interpretWord state@LState {lStack = (LFloat a) : stack} word@(LSymbol "round") =
+  pure $ state {lStack = LInteger (round a) : stack}
 interpretWord state@LState {lStack = stack, lDict = dict} word@(LSymbol "+") =
-  let ((LInteger a) : (LInteger b) : stack') = stack
-   in pure $ state {lStack = LInteger (a + b) : stack'}
+  let (a : b : stack') = stack
+      result = lAddNumbers a b
+   in pure $ state {lStack = result : stack'}
+interpretWord state@LState {lStack = stack, lDict = dict} word@(LSymbol "*") =
+  let (a : b : stack') = stack
+      result = lMultiplyNumbers a b
+   in pure $ state {lStack = result : stack'}
 -- def lookup
 interpretWord state@LState {lDefs = defs, lSource = source} word@(LSymbol other) =
   let defM = M.lookup other defs
@@ -96,6 +110,14 @@ interpretWord state@LState {lDefs = defs, lSource = source} word@(LSymbol other)
 
 -- error
 -- interpretWord state other = error $ "[error] runtime error at " ++ show other ++ "\ninterpreter state at time of error:\n" ++ show state
+
+lAddNumbers (LInteger a) (LInteger b) = LInteger (a + b)
+lAddNumbers (LFloat a) (LFloat b) = LFloat (a + b)
+lAddNumbers a b = error $ "[error] sum not defined for " ++ show a ++ ", " ++ show b
+
+lMultiplyNumbers (LInteger a) (LInteger b) = LInteger (a * b)
+lMultiplyNumbers (LFloat a) (LFloat b) = LFloat (a * b)
+lMultiplyNumbers a b = error $ "[error] product not defined for " ++ show a ++ ", " ++ show b
 
 main :: IO ()
 main = do
