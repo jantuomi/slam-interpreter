@@ -6,3 +6,8 @@ $foo ?
 
 -- print 1 + value at foo
 1 $foo @ + .
+
+-- define x * 2 = x + x
+define *2       dup + ;
+
+666 *2 .
