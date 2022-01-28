@@ -1,0 +1,9 @@
+define ,    dup . ;
+
+-- load idx value and print it (w/o consume)
+-- calc idx - 1 and store in idx
+10 $idx !
+[ $idx @ 0 gt? ] [
+    $idx @ ,
+    1 - $idx !
+] loop

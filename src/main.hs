@@ -55,7 +55,7 @@ parseWord rawStr
 parseSource source = source $> words .> map parseWord
 
 interpretSource :: LState -> IO ()
-interpretSource LState {lSource = []} = putStrLn "done"
+interpretSource LState {lSource = []} = pure ()
 interpretSource state@LState {lSource = (word : rest)} = do
   newState <- interpretWord state {lSource = rest} word
   -- putStrLn $ "[debug] processed " ++ show word ++ ", newState ="
@@ -134,19 +134,38 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             pure $ state {lStack = stack'}
           "+" ->
             let (a : b : stack') = stack
-                result = lAddNumbers a b
+                result = lAddNumbers b a
+             in pure $ state {lStack = result : stack'}
+          "-" ->
+            let (a : b : stack') = stack
+                result = lSubNumbers b a
              in pure $ state {lStack = result : stack'}
           "*" ->
             let (a : b : stack') = stack
                 result = lMultiplyNumbers a b
              in pure $ state {lStack = result : stack'}
+          "/" ->
+            let (a : b : stack') = stack
+                result = lDivideNumbers a b
+             in pure $ state {lStack = result : stack'}
           "eq?" ->
             let (a : b : stack') = stack
              in pure $ state {lStack = LBool (a == b) : stack'}
+          "gt?" ->
+            let (a : b : stack') = stack
+             in pure $ state {lStack = lGreaterThan b a : stack'}
+          "lt?" ->
+            let (a : b : stack') = stack
+             in pure $ state {lStack = lLesserThan b a : stack'}
           "cond" ->
             let (fb : tb : (LBool cond) : stack') = stack
                 LPhrase branch = if cond then tb else fb
                 newSource = reverse branch ++ source
+             in pure $ state {lStack = stack', lSource = newSource}
+          "loop" ->
+            let (bodyP@(LPhrase body) : condP@(LPhrase cond) : stack') = stack
+                ifWords = reverse cond ++ [LPhrase $ reverse (reverse body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
+                newSource = ifWords ++ source
              in pure $ state {lStack = stack', lSource = newSource}
           _ -> error $ "[error] not defined: " ++ symbol
   | otherwise = pure $ state {lStack = word : stack}
@@ -156,11 +175,27 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
 
 lAddNumbers (LInteger a) (LInteger b) = LInteger (a + b)
 lAddNumbers (LFloat a) (LFloat b) = LFloat (a + b)
-lAddNumbers a b = error $ "[error] sum not defined for " ++ show a ++ ", " ++ show b
+lAddNumbers a b = error $ "[error] sum it not defined for " ++ show a ++ ", " ++ show b
+
+lSubNumbers (LInteger a) (LInteger b) = LInteger (a - b)
+lSubNumbers (LFloat a) (LFloat b) = LFloat (a - b)
+lSubNumbers a b = error $ "[error] difference it not defined for " ++ show a ++ ", " ++ show b
 
 lMultiplyNumbers (LInteger a) (LInteger b) = LInteger (a * b)
 lMultiplyNumbers (LFloat a) (LFloat b) = LFloat (a * b)
-lMultiplyNumbers a b = error $ "[error] product not defined for " ++ show a ++ ", " ++ show b
+lMultiplyNumbers a b = error $ "[error] product it not defined for " ++ show a ++ ", " ++ show b
+
+lDivideNumbers (LInteger a) (LInteger b) = LInteger (a `div` b)
+lDivideNumbers (LFloat a) (LFloat b) = LFloat (a / b)
+lDivideNumbers a b = error $ "[error] product it not defined for " ++ show a ++ ", " ++ show b
+
+lGreaterThan (LInteger a) (LInteger b) = LBool (a > b)
+lGreaterThan (LFloat a) (LFloat b) = LBool (a > b)
+lGreaterThan a b = error $ "[error] greater-than it not defined for " ++ show a ++ ", " ++ show b
+
+lLesserThan (LInteger a) (LInteger b) = LBool (a < b)
+lLesserThan (LFloat a) (LFloat b) = LBool (a < b)
+lLesserThan a b = error $ "[error] lesser-than it not defined for " ++ show a ++ ", " ++ show b
 
 main :: IO ()
 main = do
