@@ -1,0 +1,54 @@
+-- some abbreviations because I'm lazy
+define p            phrase ;
+define up           unphrase ;
+define reprup       repr unphrase ;
+
+-- set ok, fail counters to 0
+define init-tests
+    0 $ok-count !
+    0 $fail-count !
+    ;
+
+-- print ok, fail counter values
+define end-tests
+    '[ $ok-count @ reprup " ok, " up $fail-count @ reprup " failed" up '] p s.
+    $ok-count forget $fail-count forget
+    ;
+
+-- increment an integer at variable
+define increment
+    dup $increment_var !
+    @ 1 + $increment_var @ !
+    $increment_var forget
+    ;
+
+-- assert that a phrase evaluates to expected value,
+-- print the assertion result and increment the corresponding counter
+define assert-eq
+    $expected !
+    $actualp !
+    $actualp @ up $actualv !
+    $expected @ $actualv @ eq?
+        [ '[ $actualp @ reprup " == " up $expected @ reprup " 👍" up '] p s.
+          $ok-count increment ]
+        [ '[ $actualp @ reprup " == " up $expected @ reprup " ❌" up ", actual: " up $actualv @ reprup '] p s.
+          $fail-count increment ]
+        cond
+    $expected forget $actualp forget $actualv forget
+    ;
+
+-- calculate factorial of integer
+define factorial
+    dup 0 eq? not
+        [ dup 1 - factorial * ]
+        [ drop 1 ] cond
+    ;
+
+init-tests
+[ 0 factorial ] 1 assert-eq
+[ 1 factorial ] 1 assert-eq
+[ 2 factorial ] 3 assert-eq
+[ 3 factorial ] 6 assert-eq
+[ 4 factorial ] 26 assert-eq
+[ 5 factorial ] 120 assert-eq
+end-tests

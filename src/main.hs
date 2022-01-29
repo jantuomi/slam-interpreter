@@ -200,6 +200,10 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             let (LSymbol "]" : stack') = stack
                 (body, _ : newStack) = break (== LSymbol "[") stack'
              in pure $ state {lStack = LPhrase (reverse body) : newStack}
+          "repr" ->
+            let (word : stack') = stack
+                reprStr = reprWord word $> map LChar .> LPhrase
+             in pure $ state {lStack = reprStr : stack'}
           "pop" ->
             let (LPhrase phrase : stack') = stack
                 (first : rest) = phrase
