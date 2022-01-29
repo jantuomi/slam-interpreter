@@ -8,8 +8,23 @@ import Debug.Trace (trace, traceShow)
 import System.Environment (getArgs)
 import Utils
 
-getFilename [] = error "empty argument list"
-getFilename (f : fs) = f
+data Config = Config
+  { configFileNameM :: Maybe String,
+    configDebugMode :: Bool
+  }
+
+getConfig config [] = config
+getConfig config ("--debug" : rest) =
+  let newConfig = config {configDebugMode = True}
+   in getConfig newConfig rest
+getConfig config (fileName : rest) =
+  let newConfig = config {configFileNameM = Just fileName}
+   in getConfig newConfig rest
+
+debugPrint Config {configDebugMode = mode} message =
+  if mode
+    then putStrLn $ "[debug] " ++ message
+    else pure ()
 
 data LWord
   = LSymbol String
@@ -25,7 +40,7 @@ reprWord (LInteger a) = show a
 reprWord (LFloat a) = show a
 reprWord (LBool a) = show a
 reprWord (LVariable a) = a
-reprWord (LPhrase a) = "P[ " ++ unwords (map reprWord a) ++ " ]"
+reprWord (LPhrase a) = "P[ " ++ map reprWord a $> reverse .> unwords ++ " ]"
 
 data LState = LState
   { lDict :: Map String LWord,
@@ -38,13 +53,16 @@ data LState = LState
 
 evalMode state = lPhraseDepth state == 0
 
-debugState state = do
-  putStrLn $ "stack:         " ++ unwords (map reprWord (lStack state))
-  putStrLn $ "source:        " ++ unwords (map reprWord (lSource state))
-  putStrLn $ "defs:          " ++ unwords (M.keys (lDefs state))
-  putStrLn $ "dict:          " ++ unwords (M.keys (lDict state))
-  putStrLn $ "lPhraseDepth:  " ++ show (lPhraseDepth state)
-  putStrLn ""
+debugState Config {configDebugMode = mode} state =
+  if mode
+    then do
+      putStrLn $ "stack:         " ++ unwords (map reprWord (lStack state))
+      putStrLn $ "source:        " ++ unwords (map reprWord (lSource state))
+      putStrLn $ "defs:          " ++ unwords (M.keys (lDefs state))
+      putStrLn $ "dict:          " ++ unwords (M.keys (lDict state))
+      putStrLn $ "lPhraseDepth:  " ++ show (lPhraseDepth state)
+      putStrLn ""
+    else pure ()
 
 parseWord rawStr
   | isIntStr rawStr = LInteger (read rawStr)
@@ -54,13 +72,13 @@ parseWord rawStr
 
 parseSource source = source $> words .> map parseWord
 
-interpretSource :: LState -> IO ()
-interpretSource LState {lSource = []} = pure ()
-interpretSource state@LState {lSource = (word : rest)} = do
+interpretSource :: Config -> LState -> IO ()
+interpretSource config LState {lSource = []} = pure ()
+interpretSource config state@LState {lSource = (word : rest)} = do
   newState <- interpretWord state {lSource = rest} word
-  -- putStrLn $ "[debug] processed " ++ show word ++ ", newState ="
-  -- debugState newState
-  interpretSource newState
+  debugPrint config $ "processed " ++ show word ++ ", newState ="
+  debugState config newState
+  interpretSource config newState
 
 interpretWord :: LState -> LWord -> IO LState
 -- non-nestable structures
@@ -103,6 +121,7 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
         case symbol of
           "dup" -> pure $ state {lStack = head stack : stack}
           "drop" -> pure $ state {lStack = tail stack}
+          "clear" -> pure $ state {lStack = []}
           "noop" -> pure state
           "true" -> pure $ state {lStack = LBool True : stack}
           "false" -> pure $ state {lStack = LBool False : stack}
@@ -123,6 +142,10 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             let (LVariable a : stack') = stack
                 lookupWord = dict ! a
              in pure $ state {lStack = lookupWord : stack'}
+          "forget" ->
+            let (LVariable a : stack') = stack
+                newDict = M.delete a dict
+             in pure $ state {lStack = stack', lDict = newDict}
           "." -> do
             let (a : stack') = stack
             putStrLn $ reprWord a
@@ -142,11 +165,15 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
              in pure $ state {lStack = result : stack'}
           "*" ->
             let (a : b : stack') = stack
-                result = lMultiplyNumbers a b
+                result = lMultiplyNumbers b a
              in pure $ state {lStack = result : stack'}
           "/" ->
             let (a : b : stack') = stack
-                result = lDivideNumbers a b
+                result = lDivideNumbers b a
+             in pure $ state {lStack = result : stack'}
+          "mod" ->
+            let (a : b : stack') = stack
+                result = lModNumbers b a
              in pure $ state {lStack = result : stack'}
           "eq?" ->
             let (a : b : stack') = stack
@@ -157,6 +184,21 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
           "lt?" ->
             let (a : b : stack') = stack
              in pure $ state {lStack = lLesserThan b a : stack'}
+          "unphrase" ->
+            let (LPhrase phrase : stack') = stack
+             in pure $ state {lSource = reverse phrase ++ source, lStack = stack'}
+          "phrase" ->
+            let (LSymbol "]" : stack') = stack
+                (body, _ : newStack) = break (== LSymbol "[") stack'
+             in pure $ state {lStack = LPhrase body : newStack}
+          "pop" ->
+            let (LPhrase phrase : stack') = stack
+                (first : rest) = reverse phrase
+             in pure $ state {lStack = first : LPhrase (reverse rest) : stack'}
+          "']" ->
+            pure $ state {lStack = LSymbol "]" : stack}
+          "'[" ->
+            pure $ state {lStack = LSymbol "[" : stack}
           "cond" ->
             let (fb : tb : (LBool cond) : stack') = stack
                 LPhrase branch = if cond then tb else fb
@@ -170,44 +212,53 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
           _ -> error $ "[error] not defined: " ++ symbol
   | otherwise = pure $ state {lStack = word : stack}
 
--- error
--- interpretWord state other = error $ "[error] runtime error at " ++ show other ++ "\ninterpreter state at time of error:\n" ++ show state
-
 lAddNumbers (LInteger a) (LInteger b) = LInteger (a + b)
 lAddNumbers (LFloat a) (LFloat b) = LFloat (a + b)
-lAddNumbers a b = error $ "[error] sum it not defined for " ++ show a ++ ", " ++ show b
+lAddNumbers a b = error $ "[error] sum is not defined for " ++ show a ++ ", " ++ show b
 
 lSubNumbers (LInteger a) (LInteger b) = LInteger (a - b)
 lSubNumbers (LFloat a) (LFloat b) = LFloat (a - b)
-lSubNumbers a b = error $ "[error] difference it not defined for " ++ show a ++ ", " ++ show b
+lSubNumbers a b = error $ "[error] difference is not defined for " ++ show a ++ ", " ++ show b
 
 lMultiplyNumbers (LInteger a) (LInteger b) = LInteger (a * b)
 lMultiplyNumbers (LFloat a) (LFloat b) = LFloat (a * b)
-lMultiplyNumbers a b = error $ "[error] product it not defined for " ++ show a ++ ", " ++ show b
+lMultiplyNumbers a b = error $ "[error] product is not defined for " ++ show a ++ ", " ++ show b
 
 lDivideNumbers (LInteger a) (LInteger b) = LInteger (a `div` b)
 lDivideNumbers (LFloat a) (LFloat b) = LFloat (a / b)
-lDivideNumbers a b = error $ "[error] product it not defined for " ++ show a ++ ", " ++ show b
+lDivideNumbers a b = error $ "[error] product is not defined for " ++ show a ++ ", " ++ show b
 
 lGreaterThan (LInteger a) (LInteger b) = LBool (a > b)
 lGreaterThan (LFloat a) (LFloat b) = LBool (a > b)
-lGreaterThan a b = error $ "[error] greater-than it not defined for " ++ show a ++ ", " ++ show b
+lGreaterThan a b = error $ "[error] greater-than is not defined for " ++ show a ++ ", " ++ show b
 
 lLesserThan (LInteger a) (LInteger b) = LBool (a < b)
 lLesserThan (LFloat a) (LFloat b) = LBool (a < b)
-lLesserThan a b = error $ "[error] lesser-than it not defined for " ++ show a ++ ", " ++ show b
+lLesserThan a b = error $ "[error] lesser-than is not defined for " ++ show a ++ ", " ++ show b
+
+lModNumbers (LInteger a) (LInteger b) = LInteger (a `mod` b)
+lModNumbers a b = error $ "[error] modulo is not defined for " ++ show a ++ ", " ++ show b
 
 main :: IO ()
 main = do
   args <- getArgs
-  let filename = getFilename args
-  putStrLn $ "[info] executing file " ++ filename
-  source <- readFile filename
-  -- putStrLn source
+  let initialConfig =
+        Config
+          { configFileNameM = Nothing,
+            configDebugMode = False
+          }
+  let config = getConfig initialConfig args
+  let fileName = case configFileNameM config of
+        Just x -> x
+        Nothing -> error "[error] no file name specified"
+
+  debugPrint config $ "executing file " ++ fileName
+  source <- readFile fileName
+
   let sourceWoComments = source $> lines .> filter (\line -> not ("--" `isPrefixOf` line)) .> unlines
   let parsed = parseSource sourceWoComments
-  -- putStrLn $ "[info] parsed words:\n" ++ show parsed
-  putStrLn "[info] interpreter output:"
+  debugPrint config $ "parsed words:\n" ++ show parsed
+  debugPrint config "interpreter output:"
   let initialState =
         LState
           { lDict = M.empty,
@@ -216,4 +267,4 @@ main = do
             lDefs = M.empty,
             lSource = parsed
           }
-  interpretSource initialState
+  interpretSource config initialState

@@ -1,0 +1,7 @@
+define factorial
+--  Integer -> Integer
+    dup 0 eq? not
+        [ dup 1 - factorial * ]
+        [ drop 1 ] cond ;
+
+5 factorial .

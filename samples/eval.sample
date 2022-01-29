@@ -1,0 +1,14 @@
+define update
+    $update_var !
+    $update_phrase !
+    $update_var @ @ $update_phrase @ unphrase
+    $update_var @ !
+    $update_var forget $update_phrase forget
+    ;
+
+10 $num !
+[ 1 + ] $num update
+$num ?
+
+[ 5 / ] $num update
+$num ?

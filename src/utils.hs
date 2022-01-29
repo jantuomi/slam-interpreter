@@ -1,4 +1,5 @@
 module Utils where
+
 import qualified Data.Bifunctor as B
 
 (.>) = flip (.)

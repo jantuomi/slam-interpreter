@@ -1,0 +1,5 @@
+10 $idx !
+[ $idx @ dup 0 gt? ]
+    [ 2 mod 0 eq? .
+      $idx @ 1 - $idx ! ] loop
+drop

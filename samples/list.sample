@@ -1,0 +1,17 @@
+define prepend
+    $prepend_val !
+    $prepend_phrase !
+    '[ $prepend_val @ $prepend_phrase @ unphrase '] phrase
+    $prepend_val forget $prepend_phrase forget
+    ;
+
+define append
+    $append_val !
+    $append_phrase !
+    '[ $append_phrase @ unphrase $append_val @ '] phrase
+    $append_val forget $append_phrase forget
+    ;
+
+[ 2 3 ] 1 prepend .
+[ 2 3 ] 4 append .
+[ 1 2 3 ] pop . .

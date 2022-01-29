@@ -1,0 +1,2 @@
+define gte?     lt? not ;
+define lte?     gt? not ;
