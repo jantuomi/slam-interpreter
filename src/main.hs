@@ -6,6 +6,7 @@ import Data.Map (Map, (!))
 import qualified Data.Map as M
 import Debug.Trace (trace, traceShow)
 import System.Environment (getArgs)
+import System.IO (BufferMode (NoBuffering), hSetBuffering, stdin)
 import Utils
 
 data Config = Config
@@ -64,6 +65,18 @@ debugState Config {configDebugMode = mode} state =
       putStrLn ""
     else pure ()
 
+data ExecStep = ExecContinue | ExecExit
+
+debugWaitForChar Config {configDebugMode = mode} =
+  if mode
+    then do
+      hSetBuffering stdin NoBuffering
+      c <- getChar
+      pure $ case c of
+        'q' -> ExecExit
+        _ -> ExecContinue
+    else pure ExecContinue
+
 parseWord rawStr
   | isIntStr rawStr = LInteger (read rawStr)
   | isFloatStr rawStr = LFloat $ read rawStr
@@ -78,7 +91,10 @@ interpretSource config state@LState {lSource = (word : rest)} = do
   newState <- interpretWord state {lSource = rest} word
   debugPrint config $ "processed " ++ show word ++ ", newState ="
   debugState config newState
-  interpretSource config newState
+  step <- debugWaitForChar config
+  case step of
+    ExecContinue -> interpretSource config newState
+    ExecExit -> pure ()
 
 interpretWord :: LState -> LWord -> IO LState
 -- non-nestable structures
@@ -195,6 +211,9 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             let (LPhrase phrase : stack') = stack
                 (first : rest) = reverse phrase
              in pure $ state {lStack = first : LPhrase (reverse rest) : stack'}
+          "stack-size" ->
+            let size = LInteger $ fromIntegral (length stack)
+             in pure $ state {lStack = size : stack}
           "']" ->
             pure $ state {lStack = LSymbol "]" : stack}
           "'[" ->

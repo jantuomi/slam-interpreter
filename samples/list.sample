@@ -12,6 +12,13 @@ define append
     $append_val forget $append_phrase forget
     ;
 
+define stack-empty? stack-size 0 eq? ;
+
+define ..
+    [ stack-empty? not ]
+        [ . ] loop
+    ;
+
 [ 2 3 ] 1 prepend .
 [ 2 3 ] 4 append .
-[ 1 2 3 ] pop . .
+[ 1 2 3 ] pop ..
