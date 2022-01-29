@@ -21,4 +21,7 @@ define ..
 
 [ 2 3 ] 1 prepend .
 [ 2 3 ] 4 append .
-[ 1 2 3 ] pop ..
+[ 1 2 3 ] pop $1 ! pop $2 ! pop $3 !
+$1 ?
+$2 ?
+$3 ?

@@ -1,0 +1,9 @@
+define up   unphrase ;
+define p    phrase ;
+
+define hello
+    $name !
+    '[ "Hello " up $name @ up " 👋" up '] p
+    $name forget ;
+
+"Jan" hello s.

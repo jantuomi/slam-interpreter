@@ -31,5 +31,10 @@ isIntStr str =
         Just _ -> True
         Nothing -> False
 
+isCharStr str =
+  case str of
+    ['\'', c, '\''] -> True
+    _ -> False
+
 breakOn :: (a -> Bool) -> [a] -> ([a], [a])
 breakOn cond xs = break cond xs $> B.second (drop 1)

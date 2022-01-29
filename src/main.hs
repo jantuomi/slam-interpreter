@@ -1,10 +1,11 @@
 module Main where
 
 import Data.Char
-import Data.List (isPrefixOf, isSuffixOf)
 import Data.Map (Map, (!))
 import qualified Data.Map as M
 import Debug.Trace (trace, traceShow)
+import LTypes
+import Parser
 import System.Environment (getArgs)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stdin)
 import Utils
@@ -27,28 +28,13 @@ debugPrint Config {configDebugMode = mode} message =
     then putStrLn $ "[debug] " ++ message
     else pure ()
 
-data LWord
-  = LSymbol String
-  | LInteger Integer
-  | LFloat Double
-  | LBool Bool
-  | LVariable String
-  | LPhrase [LWord]
-  deriving (Show, Eq)
-
-reprWord (LSymbol a) = a
-reprWord (LInteger a) = show a
-reprWord (LFloat a) = show a
-reprWord (LBool a) = show a
-reprWord (LVariable a) = a
-reprWord (LPhrase a) = "P[ " ++ map reprWord a $> reverse .> unwords ++ " ]"
-
 data LState = LState
   { lDict :: Map String LWord,
     lStack :: [LWord],
     lPhraseDepth :: Int,
     lDefs :: Map String [LWord],
-    lSource :: [LWord]
+    lSource :: [LWord],
+    lStrLitRefMap :: Map String String
   }
   deriving (Show)
 
@@ -76,14 +62,6 @@ debugWaitForChar Config {configDebugMode = mode} =
         'q' -> ExecExit
         _ -> ExecContinue
     else pure ExecContinue
-
-parseWord rawStr
-  | isIntStr rawStr = LInteger (read rawStr)
-  | isFloatStr rawStr = LFloat $ read rawStr
-  | "$" `isPrefixOf` rawStr = LVariable $ tail rawStr
-  | otherwise = LSymbol rawStr
-
-parseSource source = source $> words .> map parseWord
 
 interpretSource :: Config -> LState -> IO ()
 interpretSource config LState {lSource = []} = pure ()
@@ -119,14 +97,20 @@ interpretWord state@LState {lDefs = defs, lStack = stack, lPhraseDepth = phraseD
 interpretWord state@LState {lStack = stack} word@(LInteger _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LFloat _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LBool _) = pure $ state {lStack = word : stack}
-interpretWord state@LState {lStack = stack} word@(LVariable _) = pure $ state {lStack = word : stack}
+interpretWord state@LState {lStack = stack} word@(LChar _) = pure $ state {lStack = word : stack}
+interpretWord state@LState {lStack = stack} word@(LLabel _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LPhrase _) = pure $ state {lStack = word : stack}
+interpretWord state@LState {lStack = stack, lStrLitRefMap = strLitRefMap} (LStringLitRef ref) =
+  let strLit = strLitRefMap ! ref
+      chars = strLit $> map LChar
+      word = LPhrase chars
+   in pure $ state {lStack = word : stack}
 -- phrase markers are always evaled
 interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "[") =
   pure $ state {lPhraseDepth = phraseDepth + 1, lStack = word : stack}
 interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "]") =
   let (phrase, stack') = break (== LSymbol "[") stack
-      newStack = LPhrase phrase : tail stack'
+      newStack = LPhrase (reverse phrase) : tail stack'
    in pure $ state {lPhraseDepth = phraseDepth - 1, lStack = newStack}
 -- definition lookup
 interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhraseDepth = phraseDepth, lStack = stack} word@(LSymbol symbol)
@@ -151,23 +135,32 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             let (LFloat a : stack') = stack
              in pure $ state {lStack = LInteger (round a) : stack'}
           "!" ->
-            let (LVariable a : b : stack') = stack
+            let (LLabel a : b : stack') = stack
                 newDict = M.insert a b dict
              in pure $ state {lDict = newDict, lStack = stack'}
           "@" ->
-            let (LVariable a : stack') = stack
+            let (LLabel a : stack') = stack
                 lookupWord = dict ! a
              in pure $ state {lStack = lookupWord : stack'}
           "forget" ->
-            let (LVariable a : stack') = stack
+            let (LLabel a : stack') = stack
                 newDict = M.delete a dict
              in pure $ state {lStack = stack', lDict = newDict}
           "." -> do
             let (a : stack') = stack
             putStrLn $ reprWord a
             pure $ state {lStack = stack'}
+          "s." -> do
+            let (word@(LPhrase ws) : stack') = stack
+            let isLChar w = case w of LChar _ -> True; _ -> False
+            if not (all isLChar ws)
+              then error $ "[error] cannot string-print heterogenous phrase: " ++ reprWord word
+              else pure ()
+            let stringRepr = ws $> map (\(LChar c) -> c)
+            putStrLn stringRepr
+            pure $ state {lStack = stack'}
           "?" -> do
-            let (LVariable a : stack') = stack
+            let (LLabel a : stack') = stack
             let lookupWord = dict ! a
             putStrLn $ reprWord lookupWord
             pure $ state {lStack = stack'}
@@ -202,15 +195,15 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
              in pure $ state {lStack = lLesserThan b a : stack'}
           "unphrase" ->
             let (LPhrase phrase : stack') = stack
-             in pure $ state {lSource = reverse phrase ++ source, lStack = stack'}
+             in pure $ state {lSource = phrase ++ source, lStack = stack'}
           "phrase" ->
             let (LSymbol "]" : stack') = stack
                 (body, _ : newStack) = break (== LSymbol "[") stack'
-             in pure $ state {lStack = LPhrase body : newStack}
+             in pure $ state {lStack = LPhrase (reverse body) : newStack}
           "pop" ->
             let (LPhrase phrase : stack') = stack
-                (first : rest) = reverse phrase
-             in pure $ state {lStack = first : LPhrase (reverse rest) : stack'}
+                (first : rest) = phrase
+             in pure $ state {lStack = first : LPhrase rest : stack'}
           "stack-size" ->
             let size = LInteger $ fromIntegral (length stack)
              in pure $ state {lStack = size : stack}
@@ -221,11 +214,11 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
           "cond" ->
             let (fb : tb : (LBool cond) : stack') = stack
                 LPhrase branch = if cond then tb else fb
-                newSource = reverse branch ++ source
+                newSource = branch ++ source
              in pure $ state {lStack = stack', lSource = newSource}
           "loop" ->
             let (bodyP@(LPhrase body) : condP@(LPhrase cond) : stack') = stack
-                ifWords = reverse cond ++ [LPhrase $ reverse (reverse body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
+                ifWords = cond ++ [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
                 newSource = ifWords ++ source
              in pure $ state {lStack = stack', lSource = newSource}
           _ -> error $ "[error] not defined: " ++ symbol
@@ -271,12 +264,12 @@ main = do
         Just x -> x
         Nothing -> error "[error] no file name specified"
 
-  debugPrint config $ "executing file " ++ fileName
+  debugPrint config $ "executing file " ++ fileName ++ "\n"
   source <- readFile fileName
 
-  let sourceWoComments = source $> lines .> filter (\line -> not ("--" `isPrefixOf` line)) .> unlines
-  let parsed = parseSource sourceWoComments
-  debugPrint config $ "parsed words:\n" ++ show parsed
+  let (parsedSource, strLitRefMap) = parseSource source
+  debugPrint config $ "parsed words:\n" ++ show parsedSource ++ "\n"
+  debugPrint config $ "string literal refmap:\n" ++ show strLitRefMap ++ "\n"
   debugPrint config "interpreter output:"
   let initialState =
         LState
@@ -284,6 +277,7 @@ main = do
             lStack = [],
             lPhraseDepth = 0,
             lDefs = M.empty,
-            lSource = parsed
+            lSource = parsedSource,
+            lStrLitRefMap = strLitRefMap
           }
   interpretSource config initialState

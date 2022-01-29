@@ -1,5 +1,12 @@
+define decrement
+  dup $decrement_var !
+  @ 1 - $decrement_var @ !
+  $decrement_var forget ;
+
 10 $idx !
-[ $idx @ dup 0 gt? ]
-    [ 2 mod 0 eq? .
-      $idx @ 1 - $idx ! ] loop
+[ $idx @ dup 0 gt? ]            -- while idx > 0
+    [ 2 mod 0 eq?               -- print "even" if even, "odd" if odd
+        [ "even" s. ]
+        [ "odd" s. ] cond
+      $idx decrement ] loop     -- decrement idx by 1
 drop
