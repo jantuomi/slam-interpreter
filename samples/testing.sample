@@ -11,7 +11,9 @@ define init-tests
 
 -- print ok, fail counter values
 define end-tests
-    '[ $ok-count @ reprup " ok, " up $fail-count @ reprup " failed" up '] p s.
+    $ok-count @ repr
+    $fail-count @ repr
+    "%% ok, %% failed" s.
     $ok-count forget $fail-count forget
     ;
 
@@ -29,9 +31,14 @@ define assert-eq
     $actualp !
     $actualp @ up $actualv !
     $expected @ $actualv @ eq?
-        [ '[ $actualp @ reprup " == " up $expected @ reprup " 👍" up '] p s.
+        [ $actualp @ repr
+          $expected @ repr
+          "%% == %% 👍" s.
           $ok-count increment ]
-        [ '[ $actualp @ reprup " == " up $expected @ reprup " ❌" up ", actual: " up $actualv @ reprup '] p s.
+        [ $actualp @ repr
+          $expected @ repr
+          $actualv @ repr
+          "%% == %% ❌, actual: %%" s.
           $fail-count increment ]
         cond
     $expected forget $actualp forget $actualv forget

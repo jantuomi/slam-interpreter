@@ -38,3 +38,8 @@ isCharStr str =
 
 breakOn :: (a -> Bool) -> [a] -> ([a], [a])
 breakOn cond xs = break cond xs $> B.second (drop 1)
+
+mix :: [a] -> [a] -> [a]
+mix (x : xs) (y : ys) = x : y : mix xs ys
+mix x [] = x
+mix [] y = y

@@ -34,7 +34,7 @@ data LState = LState
     lPhraseDepth :: Int,
     lDefs :: Map String [LWord],
     lSource :: [LWord],
-    lStrLitRefMap :: Map String String
+    lStrLitRefMap :: Map String [LWord]
   }
   deriving (Show)
 
@@ -100,11 +100,10 @@ interpretWord state@LState {lStack = stack} word@(LBool _) = pure $ state {lStac
 interpretWord state@LState {lStack = stack} word@(LChar _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LLabel _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LPhrase _) = pure $ state {lStack = word : stack}
-interpretWord state@LState {lStack = stack, lStrLitRefMap = strLitRefMap} (LStringLitRef ref) =
-  let strLit = strLitRefMap ! ref
-      chars = strLit $> map LChar
-      word = LPhrase chars
-   in pure $ state {lStack = word : stack}
+-- string literals
+interpretWord state@LState {lSource = source, lStrLitRefMap = strLitRefMap} (LStringLitRef ref) =
+  let strLitP = strLitRefMap ! ref
+   in pure $ state {lSource = strLitP ++ source}
 -- phrase markers are always evaled
 interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "[") =
   pure $ state {lPhraseDepth = phraseDepth + 1, lStack = word : stack}
