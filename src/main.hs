@@ -1,5 +1,6 @@
 module Main where
 
+import Control.Monad.Except
 import Data.Char
 import Data.Map (Map, (!))
 import qualified Data.Map as M
@@ -8,6 +9,7 @@ import Interpreter
 import LTypes
 import Parser
 import System.Environment (getArgs)
+import System.Exit (exitFailure, exitSuccess)
 import Utils
 
 getConfig config [] = config
@@ -18,23 +20,25 @@ getConfig config (fileName : rest) =
   let newConfig = config {configFileNameM = Just fileName}
    in getConfig newConfig rest
 
-main :: IO ()
-main = do
-  args <- getArgs
+getFileName :: Config -> ExceptT LException IO String
+getFileName Config {configFileNameM = fileNameM} = do
+  case fileNameM of
+    Just str -> pure str
+    Nothing -> throwError $ LException "no file name specified"
+
+bootstrap :: [String] -> ExceptT LException IO ()
+bootstrap args = do
   let initialConfig =
         Config
           { configFileNameM = Nothing,
             configDebugMode = False
           }
   let config = getConfig initialConfig args
-  let fileName = case configFileNameM config of
-        Just x -> x
-        Nothing -> error "[error] no file name specified"
+  fileName <- getFileName config
 
   debugPrint config $ "executing file " ++ fileName ++ "\n"
-  source <- readFile fileName
-
-  let (parsedSource, strLitRefMap) = parseSource source
+  source <- liftIO . readFile $ fileName
+  (parsedSource, strLitRefMap) <- parseSource source
   debugPrint config $ "parsed words:\n" ++ show parsedSource ++ "\n"
   debugPrint config $ "string literal refmap:\n" ++ show strLitRefMap ++ "\n"
   debugPrint config "interpreter output:"
@@ -48,3 +52,14 @@ main = do
             lStrLitRefMap = strLitRefMap
           }
   interpretSource config initialState
+
+main :: IO ()
+main = do
+  args <- getArgs
+  result <- runExceptT $ bootstrap args
+  case result of
+    Left ex -> case ex of
+      LException errStr -> do
+        putStrLn $ "[error] " ++ errStr
+        exitFailure
+    _ -> exitSuccess

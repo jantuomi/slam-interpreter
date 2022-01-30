@@ -1,5 +1,6 @@
 module Interpreter where
 
+import Control.Monad.Except
 import Data.Char
 import Data.Map (Map, (!))
 import qualified Data.Map as M
@@ -19,21 +20,21 @@ debugWaitForChar Config {configDebugMode = mode} =
 
 debugPrint Config {configDebugMode = mode} message =
   if mode
-    then putStrLn $ "[debug] " ++ message
+    then liftIO $ putStrLn $ "[debug] " ++ message
     else pure ()
 
-interpretSource :: Config -> LState -> IO ()
+interpretSource :: Config -> LState -> ExceptT LException IO ()
 interpretSource config LState {lSource = []} = pure ()
 interpretSource config state@LState {lSource = (word : rest)} = do
   newState <- interpretWord state {lSource = rest} word
-  debugPrint config $ "processed " ++ show word ++ ", newState ="
-  debugState config newState
-  step <- debugWaitForChar config
+  liftIO $ debugPrint config $ "processed " ++ show word ++ ", newState ="
+  liftIO $ debugState config newState
+  step <- liftIO $ debugWaitForChar config
   case step of
     ExecContinue -> interpretSource config newState
     ExecExit -> pure ()
 
-interpretWord :: LState -> LWord -> IO LState
+interpretWord :: LState -> LWord -> ExceptT LException IO LState
 -- non-nestable structures
 interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "define") =
   pure $
@@ -106,51 +107,51 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
              in pure $ state {lStack = stack', lDict = newDict}
           "." -> do
             let (a : stack') = stack
-            putStrLn $ reprWord a
+            liftIO . putStrLn $ reprWord a
             pure $ state {lStack = stack'}
           "s." -> do
             let (word@(LPhrase ws) : stack') = stack
             let isLChar w = case w of LChar _ -> True; _ -> False
-            if not (all isLChar ws)
-              then error $ "[error] cannot string-print heterogenous phrase: " ++ reprWord word
-              else pure ()
+            unless (all isLChar ws) $ throwError $ LException $ "cannot string-print heterogenous phrase: " ++ reprWord word
             let stringRepr = ws $> map (\(LChar c) -> c)
-            putStrLn stringRepr
+            liftIO . putStrLn $ stringRepr
             pure $ state {lStack = stack'}
           "?" -> do
             let (LLabel a : stack') = stack
             let lookupWord = dict ! a
-            putStrLn $ reprWord lookupWord
+            liftIO . putStrLn $ reprWord lookupWord
             pure $ state {lStack = stack'}
-          "+" ->
+          "+" -> do
             let (a : b : stack') = stack
-                result = lAddNumbers b a
-             in pure $ state {lStack = result : stack'}
-          "-" ->
+            result <- lAddNumbers b a
+            pure $ state {lStack = result : stack'}
+          "-" -> do
             let (a : b : stack') = stack
-                result = lSubNumbers b a
-             in pure $ state {lStack = result : stack'}
-          "*" ->
+            result <- lSubNumbers b a
+            pure $ state {lStack = result : stack'}
+          "*" -> do
             let (a : b : stack') = stack
-                result = lMultiplyNumbers b a
-             in pure $ state {lStack = result : stack'}
-          "/" ->
+            result <- lMultiplyNumbers b a
+            pure $ state {lStack = result : stack'}
+          "/" -> do
             let (a : b : stack') = stack
-                result = lDivideNumbers b a
-             in pure $ state {lStack = result : stack'}
-          "mod" ->
+            result <- lDivideNumbers b a
+            pure $ state {lStack = result : stack'}
+          "mod" -> do
             let (a : b : stack') = stack
-                result = lModNumbers b a
-             in pure $ state {lStack = result : stack'}
-          "eq?" ->
+            result <- lModNumbers b a
+            pure $ state {lStack = result : stack'}
+          "eq?" -> do
             let (a : b : stack') = stack
-             in pure $ state {lStack = LBool (a == b) : stack'}
-          "gt?" ->
+            pure $ state {lStack = LBool (a == b) : stack'}
+          "gt?" -> do
             let (a : b : stack') = stack
-             in pure $ state {lStack = lGreaterThan b a : stack'}
-          "lt?" ->
+            result <- lGreaterThan b a
+            pure $ state {lStack = result : stack'}
+          "lt?" -> do
             let (a : b : stack') = stack
-             in pure $ state {lStack = lLesserThan b a : stack'}
+            result <- lLesserThan b a
+            pure $ state {lStack = result : stack'}
           "unphrase" ->
             let (LPhrase phrase : stack') = stack
              in pure $ state {lSource = phrase ++ source, lStack = stack'}
@@ -183,32 +184,45 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
                 ifWords = cond ++ [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
                 newSource = ifWords ++ source
              in pure $ state {lStack = stack', lSource = newSource}
-          _ -> error $ "[error] not defined: " ++ symbol
+          _ -> throwError $ LException $ "not defined: " ++ symbol
   | otherwise = pure $ state {lStack = word : stack}
 
-lAddNumbers (LInteger a) (LInteger b) = LInteger (a + b)
-lAddNumbers (LFloat a) (LFloat b) = LFloat (a + b)
-lAddNumbers a b = error $ "[error] sum is not defined for " ++ show a ++ ", " ++ show b
+lAddNumbers :: LWord -> LWord -> ExceptT LException IO LWord
+lAddNumbers (LInteger a) (LInteger b) = pure $ LInteger (a + b)
+lAddNumbers (LFloat a) (LFloat b) = pure $ LFloat (a + b)
+lAddNumbers a b = throwError $ LException $ "sum is not defined for " ++ show a ++ ", " ++ show b
 
-lSubNumbers (LInteger a) (LInteger b) = LInteger (a - b)
-lSubNumbers (LFloat a) (LFloat b) = LFloat (a - b)
-lSubNumbers a b = error $ "[error] difference is not defined for " ++ show a ++ ", " ++ show b
+lSubNumbers :: LWord -> LWord -> ExceptT LException IO LWord
+lSubNumbers (LInteger a) (LInteger b) = pure $ LInteger (a - b)
+lSubNumbers (LFloat a) (LFloat b) = pure $ LFloat (a - b)
+lSubNumbers a b = throwError $ LException $ "difference is not defined for " ++ show a ++ ", " ++ show b
 
-lMultiplyNumbers (LInteger a) (LInteger b) = LInteger (a * b)
-lMultiplyNumbers (LFloat a) (LFloat b) = LFloat (a * b)
-lMultiplyNumbers a b = error $ "[error] product is not defined for " ++ show a ++ ", " ++ show b
+lMultiplyNumbers :: LWord -> LWord -> ExceptT LException IO LWord
+lMultiplyNumbers (LInteger a) (LInteger b) = pure $ LInteger (a * b)
+lMultiplyNumbers (LFloat a) (LFloat b) = pure $ LFloat (a * b)
+lMultiplyNumbers a b = throwError $ LException $ "product is not defined for " ++ show a ++ ", " ++ show b
 
-lDivideNumbers (LInteger a) (LInteger b) = LInteger (a `div` b)
-lDivideNumbers (LFloat a) (LFloat b) = LFloat (a / b)
-lDivideNumbers a b = error $ "[error] product is not defined for " ++ show a ++ ", " ++ show b
+lDivideNumbers :: LWord -> LWord -> ExceptT LException IO LWord
+lDivideNumbers (LInteger a) (LInteger b) =
+  case b of
+    0 -> throwError $ LException "division by zero"
+    _ -> pure $ LInteger (a `div` b)
+lDivideNumbers (LFloat a) (LFloat b) =
+  case b of
+    0 -> throwError $ LException "division by zero"
+    _ -> pure $ LFloat (a / b)
+lDivideNumbers a b = throwError $ LException $ "division is not defined for " ++ show a ++ ", " ++ show b
 
-lGreaterThan (LInteger a) (LInteger b) = LBool (a > b)
-lGreaterThan (LFloat a) (LFloat b) = LBool (a > b)
-lGreaterThan a b = error $ "[error] greater-than is not defined for " ++ show a ++ ", " ++ show b
+lGreaterThan :: LWord -> LWord -> ExceptT LException IO LWord
+lGreaterThan (LInteger a) (LInteger b) = pure $ LBool (a > b)
+lGreaterThan (LFloat a) (LFloat b) = pure $ LBool (a > b)
+lGreaterThan a b = throwError $ LException $ "greater-than is not defined for " ++ show a ++ ", " ++ show b
 
-lLesserThan (LInteger a) (LInteger b) = LBool (a < b)
-lLesserThan (LFloat a) (LFloat b) = LBool (a < b)
-lLesserThan a b = error $ "[error] lesser-than is not defined for " ++ show a ++ ", " ++ show b
+lLesserThan :: LWord -> LWord -> ExceptT LException IO LWord
+lLesserThan (LInteger a) (LInteger b) = pure $ LBool (a < b)
+lLesserThan (LFloat a) (LFloat b) = pure $ LBool (a < b)
+lLesserThan a b = throwError $ LException $ "lesser-than is not defined for " ++ show a ++ ", " ++ show b
 
-lModNumbers (LInteger a) (LInteger b) = LInteger (a `mod` b)
-lModNumbers a b = error $ "[error] modulo is not defined for " ++ show a ++ ", " ++ show b
+lModNumbers :: LWord -> LWord -> ExceptT LException IO LWord
+lModNumbers (LInteger a) (LInteger b) = pure $ LInteger (a `mod` b)
+lModNumbers a b = throwError $ LException $ "modulo is not defined for " ++ show a ++ ", " ++ show b

@@ -1,5 +1,6 @@
 module LTypes where
 
+import Control.Monad.Except
 import Data.Map (Map)
 import qualified Data.Map as M
 import Utils
@@ -52,3 +53,5 @@ debugState Config {configDebugMode = mode} state =
       putStrLn $ "lPhraseDepth:  " ++ show (lPhraseDepth state)
       putStrLn ""
     else pure ()
+
+newtype LException = LException String
