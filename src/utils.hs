@@ -1,5 +1,6 @@
 module Utils where
 
+import Control.Monad.Except
 import qualified Data.Bifunctor as B
 
 (.>) = flip (.)
@@ -43,3 +44,10 @@ mix :: [a] -> [a] -> [a]
 mix (x : xs) (y : ys) = x : y : mix xs ys
 mix x [] = x
 mix [] y = y
+
+safeBreak cond ex = safeBreak' cond ex []
+
+safeBreak' _ ex _ [] = throwError ex
+safeBreak' cond ex acc lst@(x : xs)
+  | cond x = pure (acc, lst)
+  | otherwise = safeBreak' cond ex (x : acc) xs

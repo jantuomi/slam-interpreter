@@ -16,6 +16,42 @@ data LWord
   | LPhrase [LWord]
   deriving (Show, Eq)
 
+data LWordT = LSymbolT | LIntegerT | LFloatT | LBoolT | LCharT | LLabelT | LPhraseT | AnyT deriving (Show)
+
+consumeErr wordT word = LException $ "expected " ++ show wordT ++ ", encountered " ++ show word
+
+consume1 :: LWordT -> [LWord] -> ExceptT LException IO (LWord, [LWord])
+consume1 wordT [] =
+  throwError $ LException $ "expected " ++ show wordT ++ ", encountered empty stack"
+consume1 AnyT (word : stack') = pure (word, stack')
+consume1 wordT@LSymbolT (word : stack') =
+  case word of LSymbol _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LIntegerT (word : stack') =
+  case word of LInteger _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LFloatT (word : stack') =
+  case word of LFloat _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LBoolT (word : stack') =
+  case word of LBool _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LCharT (word : stack') =
+  case word of LChar _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LLabelT (word : stack') =
+  case word of LLabel _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+consume1 wordT@LPhraseT (word : stack') =
+  case word of LPhrase _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
+
+consume2 :: LWordT -> LWordT -> [LWord] -> ExceptT LException IO (LWord, LWord, [LWord])
+consume2 wordT1 wordT2 stack = do
+  (ret1, stack1) <- consume1 wordT1 stack
+  (ret2, stack2) <- consume1 wordT2 stack1
+  pure (ret1, ret2, stack2)
+
+consume3 :: LWordT -> LWordT -> LWordT -> [LWord] -> ExceptT LException IO (LWord, LWord, LWord, [LWord])
+consume3 wordT1 wordT2 wordT3 stack = do
+  (ret1, stack1) <- consume1 wordT1 stack
+  (ret2, stack2) <- consume1 wordT2 stack1
+  (ret3, stack3) <- consume1 wordT3 stack2
+  pure (ret1, ret2, ret3, stack3)
+
 reprWord :: LWord -> String
 reprWord (LSymbol a) = a
 reprWord (LInteger a) = show a

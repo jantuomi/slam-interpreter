@@ -1,7 +1,7 @@
 define eq10?
     10 eq?
-        [ true ]
-        [ false ] cond ;
+        [ "true" ]
+        [ "false" ] cond ;
 
-10 eq10? .
-5 eq10? .
+10 eq10? s.
+5 eq10? s.

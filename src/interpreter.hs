@@ -42,17 +42,17 @@ interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LS
       { lPhraseDepth = phraseDepth + 1,
         lStack = word : stack
       }
-interpretWord state@LState {lDefs = defs, lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol ";") =
+interpretWord state@LState {lDefs = defs, lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol ";") = do
   let defineSpan = takeWhile (\word -> word /= LSymbol "define") stack
-      newStack = dropWhile (\word -> word /= LSymbol "define") stack $> tail
-      ((LSymbol identifier) : body) = reverse defineSpan
-      newDefs = M.insert identifier body defs
-   in pure $
-        state
-          { lPhraseDepth = phraseDepth - 1,
-            lDefs = newDefs,
-            lStack = newStack
-          }
+  let newStack = dropWhile (\word -> word /= LSymbol "define") stack $> tail
+  (LSymbol identifier, body) <- consume1 LSymbolT (reverse defineSpan)
+  let newDefs = M.insert identifier body defs
+  pure $
+    state
+      { lPhraseDepth = phraseDepth - 1,
+        lDefs = newDefs,
+        lStack = newStack
+      }
 -- words that simply move from source to stack
 interpretWord state@LState {lStack = stack} word@(LInteger _) = pure $ state {lStack = word : stack}
 interpretWord state@LState {lStack = stack} word@(LFloat _) = pure $ state {lStack = word : stack}
@@ -67,10 +67,10 @@ interpretWord state@LState {lSource = source, lStrLitRefMap = strLitRefMap} (LSt
 -- phrase markers are always evaled
 interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "[") =
   pure $ state {lPhraseDepth = phraseDepth + 1, lStack = word : stack}
-interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "]") =
-  let (phrase, stack') = break (== LSymbol "[") stack
-      newStack = LPhrase (reverse phrase) : tail stack'
-   in pure $ state {lPhraseDepth = phraseDepth - 1, lStack = newStack}
+interpretWord state@LState {lStack = stack, lPhraseDepth = phraseDepth} word@(LSymbol "]") = do
+  (phrase, _ : stack') <- safeBreak (== LSymbol "[") (LException "phrase-start marker '[' missing in stack") stack
+  let newStack = LPhrase (reverse phrase) : stack'
+  pure $ state {lPhraseDepth = phraseDepth - 1, lStack = newStack}
 -- definition lookup
 interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhraseDepth = phraseDepth, lStack = stack} word@(LSymbol symbol)
   | phraseDepth == 0 =
@@ -84,89 +84,90 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
           "noop" -> pure state
           "true" -> pure $ state {lStack = LBool True : stack}
           "false" -> pure $ state {lStack = LBool False : stack}
-          "not" ->
-            let (LBool a : stack') = stack
-             in pure $ state {lStack = LBool (not a) : stack'}
-          "float" ->
-            let (LInteger a : stack') = stack
-             in pure $ state {lStack = LFloat (fromIntegral a) : stack'}
-          "round" ->
-            let (LFloat a : stack') = stack
-             in pure $ state {lStack = LInteger (round a) : stack'}
-          "!" ->
-            let (LLabel a : b : stack') = stack
-                newDict = M.insert a b dict
-             in pure $ state {lDict = newDict, lStack = stack'}
-          "@" ->
-            let (LLabel a : stack') = stack
-                lookupWord = dict ! a
-             in pure $ state {lStack = lookupWord : stack'}
-          "forget" ->
-            let (LLabel a : stack') = stack
-                newDict = M.delete a dict
-             in pure $ state {lStack = stack', lDict = newDict}
+          "not" -> do
+            (LBool a, stack') <- consume1 LBoolT stack
+            pure $ state {lStack = LBool (not a) : stack'}
+          "float" -> do
+            (LInteger a, stack') <- consume1 LIntegerT stack
+            pure $ state {lStack = LFloat (fromIntegral a) : stack'}
+          "round" -> do
+            (LFloat a, stack') <- consume1 LFloatT stack
+            pure $ state {lStack = LInteger (round a) : stack'}
+          "!" -> do
+            (LLabel a, b, stack') <- consume2 LLabelT AnyT stack
+            let newDict = M.insert a b dict
+            pure $ state {lDict = newDict, lStack = stack'}
+          "@" -> do
+            (LLabel a, stack') <- consume1 LLabelT stack
+            let lookupWord = dict ! a
+            pure $ state {lStack = lookupWord : stack'}
+          "forget" -> do
+            (LLabel a, stack') <- consume1 LLabelT stack
+            let newDict = M.delete a dict
+            pure $ state {lStack = stack', lDict = newDict}
           "." -> do
-            let (a : stack') = stack
+            (a, stack') <- consume1 AnyT stack
             liftIO . putStrLn $ reprWord a
             pure $ state {lStack = stack'}
           "s." -> do
-            let (word@(LPhrase ws) : stack') = stack
+            (wordP, stack') <- consume1 LPhraseT stack
+            let LPhrase ws = wordP
             let isLChar w = case w of LChar _ -> True; _ -> False
-            unless (all isLChar ws) $ throwError $ LException $ "cannot string-print heterogenous phrase: " ++ reprWord word
+            unless (all isLChar ws) $ throwError $ LException $ "cannot string-print heterogenous or non-string phrase: " ++ reprWord wordP
             let stringRepr = ws $> map (\(LChar c) -> c)
             liftIO . putStrLn $ stringRepr
             pure $ state {lStack = stack'}
           "?" -> do
-            let (LLabel a : stack') = stack
+            (LLabel a, stack') <- consume1 LLabelT stack
             let lookupWord = dict ! a
             liftIO . putStrLn $ reprWord lookupWord
             pure $ state {lStack = stack'}
           "+" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lAddNumbers b a
             pure $ state {lStack = result : stack'}
           "-" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lSubNumbers b a
             pure $ state {lStack = result : stack'}
           "*" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lMultiplyNumbers b a
             pure $ state {lStack = result : stack'}
           "/" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lDivideNumbers b a
             pure $ state {lStack = result : stack'}
           "mod" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lModNumbers b a
             pure $ state {lStack = result : stack'}
           "eq?" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             pure $ state {lStack = LBool (a == b) : stack'}
           "gt?" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lGreaterThan b a
             pure $ state {lStack = result : stack'}
           "lt?" -> do
-            let (a : b : stack') = stack
+            (a, b, stack') <- consume2 AnyT AnyT stack
             result <- lLesserThan b a
             pure $ state {lStack = result : stack'}
-          "unphrase" ->
-            let (LPhrase phrase : stack') = stack
-             in pure $ state {lSource = phrase ++ source, lStack = stack'}
-          "phrase" ->
-            let (LSymbol "]" : stack') = stack
-                (body, _ : newStack) = break (== LSymbol "[") stack'
-             in pure $ state {lStack = LPhrase (reverse body) : newStack}
-          "repr" ->
-            let (word : stack') = stack
-                reprStr = reprWord word $> map LChar .> LPhrase
-             in pure $ state {lStack = reprStr : stack'}
-          "pop" ->
-            let (LPhrase phrase : stack') = stack
-                (first : rest) = phrase
-             in pure $ state {lStack = first : LPhrase rest : stack'}
+          "unphrase" -> do
+            (LPhrase phrase, stack') <- consume1 LPhraseT stack
+            pure $ state {lSource = phrase ++ source, lStack = stack'}
+          "phrase" -> do
+            (LSymbol "]", stack') <- consume1 LSymbolT stack
+            (body, _ : newStack) <- safeBreak (== LSymbol "[") (LException "phrase-start marker '[' missing in stack") stack'
+            pure $ state {lStack = LPhrase (reverse body) : newStack}
+          "repr" -> do
+            (word, stack') <- consume1 AnyT stack
+            let reprStr = reprWord word $> map LChar .> LPhrase
+            pure $ state {lStack = reprStr : stack'}
+          "pop" -> do
+            (LPhrase phrase, stack') <- consume1 LPhraseT stack
+            let (first : rest) = phrase
+            pure $ state {lStack = first : LPhrase rest : stack'}
           "stack-size" ->
             let size = LInteger $ fromIntegral (length stack)
              in pure $ state {lStack = size : stack}
@@ -174,16 +175,17 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             pure $ state {lStack = LSymbol "]" : stack}
           "'[" ->
             pure $ state {lStack = LSymbol "[" : stack}
-          "cond" ->
-            let (fb : tb : (LBool cond) : stack') = stack
-                LPhrase branch = if cond then tb else fb
-                newSource = branch ++ source
-             in pure $ state {lStack = stack', lSource = newSource}
-          "loop" ->
-            let (bodyP@(LPhrase body) : condP@(LPhrase cond) : stack') = stack
-                ifWords = cond ++ [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
-                newSource = ifWords ++ source
-             in pure $ state {lStack = stack', lSource = newSource}
+          "cond" -> do
+            (fb, tb, LBool cond, stack') <- consume3 LPhraseT LPhraseT LBoolT stack
+            let LPhrase branch = if cond then tb else fb
+            let newSource = branch ++ source
+            pure $ state {lStack = stack', lSource = newSource}
+          "loop" -> do
+            (bodyP, condP, stack') <- consume2 LPhraseT LPhraseT stack
+            let (LPhrase body, LPhrase cond) = (bodyP, condP)
+            let ifWords = cond ++ [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
+            let newSource = ifWords ++ source
+            pure $ state {lStack = stack', lSource = newSource}
           _ -> throwError $ LException $ "not defined: " ++ symbol
   | otherwise = pure $ state {lStack = word : stack}
 
