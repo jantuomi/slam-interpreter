@@ -2,6 +2,8 @@ module Utils where
 
 import Control.Monad.Except
 import qualified Data.Bifunctor as B
+import Data.Text (Text)
+import qualified Data.Text as T
 
 (.>) = flip (.)
 
@@ -51,3 +53,14 @@ safeBreak' _ ex _ [] = throwError ex
 safeBreak' cond ex acc lst@(x : xs)
   | cond x = pure (reverse acc, lst)
   | otherwise = safeBreak' cond ex (x : acc) xs
+
+fmt :: String -> [String] -> String
+fmt str values = T.unpack $ fmt' (T.pack str) (map T.pack values)
+
+fmt' :: Text -> [Text] -> Text
+fmt' text [] = text
+fmt' text (v : rest) =
+  let pattern = T.pack "%%"
+      (front, back) = T.breakOn pattern text
+      res = T.concat [front, v, T.drop (T.length pattern) back]
+   in fmt' res rest

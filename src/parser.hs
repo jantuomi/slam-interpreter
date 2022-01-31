@@ -18,9 +18,8 @@ parseWord rawStr
   | "$" `isPrefixOf` rawStr = LLabel $ tail rawStr
   | otherwise = LSymbol rawStr
 
-removeComments source =
-  let lines_ = lines source $> map (T.pack .> T.splitOn (T.pack "--") .> head .> T.unpack)
-   in unlines lines_
+removeComments =
+  lines .> map (T.pack .> T.splitOn (T.pack "--") .> head .> T.unpack) .> unlines
 
 processStringLiterals :: Maybe String -> Map String [LWord] -> String -> ExceptT LException IO (String, Map String [LWord])
 processStringLiterals currentM refMap [] = case currentM of
@@ -47,6 +46,8 @@ processStringLiterals currentM refMap (c : source) = case c of
       -- proceed normally
       processStringLiterals Nothing refMap source $> fmap (B.first (c :))
 
+internalNVar n = LLabel $ fmt "$__%%" [show n]
+
 processSLInterpolations :: LWord -> ExceptT LException IO [LWord]
 processSLInterpolations strP@(LPhrase lChars)
   | "%%" `isInfixOf` chars = pure [LPhrase interpolated, LSymbol "unphrase"]
@@ -57,17 +58,17 @@ processSLInterpolations strP@(LPhrase lChars)
     separatedByMarker = T.pack chars $> T.splitOn (T.pack "%%") .> map (T.unpack .> map LChar)
     labelIndices = [0 .. length separatedByMarker - 1 - 1]
     -- store n - 1 variables from stack
-    varStores = labelIndices $> map (\n -> [LLabel ("$__" ++ show n), LSymbol "!"]) .> reverse
+    varStores = labelIndices $> map (\n -> [internalNVar n, LSymbol "!"]) .> reverse
     part1 = concat varStores
     -- interleave the n substrings and n - 1 variable reads
-    symbolLookups = labelIndices $> map (\n -> [LLabel ("$__" ++ show n), LSymbol "@", LSymbol "unphrase"])
+    symbolLookups = labelIndices $> map (\n -> [internalNVar n, LSymbol "@", LSymbol "unphrase"])
     part2 = LSymbol "'[" : concat (mix separatedByMarker symbolLookups) ++ [LSymbol "']", LSymbol "phrase"]
     -- forget the temp variables used
-    varForgets = labelIndices $> map (\n -> [LLabel ("$__" ++ show n), LSymbol "forget"])
+    varForgets = labelIndices $> map (\n -> [internalNVar n, LSymbol "forget"])
     part3 = concat varForgets
     -- combine everything into one phrase
     interpolated = part1 ++ part2 ++ part3
-processSLInterpolations p = throwError $ LException $ "non-phrase in processSLInterpolations: " ++ show p
+processSLInterpolations p = throwError $ LException $ fmt "non-phrase in processSLInterpolations: %%" [show p]
 
 parseSource source = do
   let woComments = source $> removeComments

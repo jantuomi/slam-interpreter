@@ -18,13 +18,13 @@ debugWaitForChar Config {configDebugMode = mode} = do
 
 debugPrint Config {configDebugMode = mode} message =
   if mode
-    then liftIO $ putStrLn $ "[debug] " ++ message
+    then liftIO $ putStrLn $ fmt "[debug] %%" [message]
     else pure ()
 
 interpretSource :: Config -> LState -> ExceptT LException IO LState
 interpretSource config state@LState {lSource = []} = pure state
 interpretSource config state@LState {lSource = (word : rest)} = do
-  liftIO $ debugPrint config $ "processing " ++ show word ++ ", current state ="
+  liftIO $ debugPrint config $ fmt "processing %%, current state =" [show word]
   liftIO $ debugState config state
   newState <- interpretWord state {lSource = rest} word
   step <- liftIO $ debugWaitForChar config
@@ -111,7 +111,7 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
             (wordP, stack') <- consume1 LPhraseT stack
             let LPhrase ws = wordP
             let isLChar w = case w of LChar _ -> True; _ -> False
-            unless (all isLChar ws) $ throwError $ LException $ "cannot string-print heterogenous or non-string phrase: " ++ reprWord wordP
+            unless (all isLChar ws) $ throwError $ LException $ fmt "cannot string-print heterogenous or non-string phrase: %%" [reprWord wordP]
             let stringRepr = ws $> map (\(LChar c) -> c)
             liftIO . putStrLn $ stringRepr
             pure $ state {lStack = stack'}
@@ -181,26 +181,31 @@ interpretWord state@LState {lDefs = defs, lDict = dict, lSource = source, lPhras
           "loop" -> do
             (bodyP, condP, stack') <- consume2 LPhraseT LPhraseT stack
             let (LPhrase body, LPhrase cond) = (bodyP, condP)
-            let ifWords = cond ++ [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])] ++ [LPhrase [], LSymbol "cond"]
+            let ifWords =
+                  concat
+                    [ cond,
+                      [LPhrase (body ++ [condP, bodyP, LSymbol "loop"])],
+                      [LPhrase [], LSymbol "cond"]
+                    ]
             let newSource = ifWords ++ source
             pure $ state {lStack = stack', lSource = newSource}
-          _ -> throwError $ LException $ "not defined: " ++ symbol
+          _ -> throwError $ LException $ fmt "not defined: %%" [symbol]
   | otherwise = pure $ state {lStack = word : stack}
 
 lAddNumbers :: LWord -> LWord -> ExceptT LException IO LWord
 lAddNumbers (LInteger a) (LInteger b) = pure $ LInteger (a + b)
 lAddNumbers (LFloat a) (LFloat b) = pure $ LFloat (a + b)
-lAddNumbers a b = throwError $ LException $ "sum is not defined for " ++ show a ++ ", " ++ show b
+lAddNumbers a b = throwError $ LException $ fmt "sum is not defined for %%, %%" [show a, show b]
 
 lSubNumbers :: LWord -> LWord -> ExceptT LException IO LWord
 lSubNumbers (LInteger a) (LInteger b) = pure $ LInteger (a - b)
 lSubNumbers (LFloat a) (LFloat b) = pure $ LFloat (a - b)
-lSubNumbers a b = throwError $ LException $ "difference is not defined for " ++ show a ++ ", " ++ show b
+lSubNumbers a b = throwError $ LException $ fmt "difference is not defined for %%, %%" [show a, show b]
 
 lMultiplyNumbers :: LWord -> LWord -> ExceptT LException IO LWord
 lMultiplyNumbers (LInteger a) (LInteger b) = pure $ LInteger (a * b)
 lMultiplyNumbers (LFloat a) (LFloat b) = pure $ LFloat (a * b)
-lMultiplyNumbers a b = throwError $ LException $ "product is not defined for " ++ show a ++ ", " ++ show b
+lMultiplyNumbers a b = throwError $ LException $ fmt "product is not defined for %%, %%" [show a, show b]
 
 lDivideNumbers :: LWord -> LWord -> ExceptT LException IO LWord
 lDivideNumbers (LInteger a) (LInteger b) =
@@ -211,18 +216,18 @@ lDivideNumbers (LFloat a) (LFloat b) =
   case b of
     0 -> throwError $ LException "division by zero"
     _ -> pure $ LFloat (a / b)
-lDivideNumbers a b = throwError $ LException $ "division is not defined for " ++ show a ++ ", " ++ show b
+lDivideNumbers a b = throwError $ LException $ fmt "division is not defined for %%, %%" [show a, show b]
 
 lGreaterThan :: LWord -> LWord -> ExceptT LException IO LWord
 lGreaterThan (LInteger a) (LInteger b) = pure $ LBool (a > b)
 lGreaterThan (LFloat a) (LFloat b) = pure $ LBool (a > b)
-lGreaterThan a b = throwError $ LException $ "greater-than is not defined for " ++ show a ++ ", " ++ show b
+lGreaterThan a b = throwError $ LException $ fmt "greater-than is not defined for %%, %%" [show a, show b]
 
 lLesserThan :: LWord -> LWord -> ExceptT LException IO LWord
 lLesserThan (LInteger a) (LInteger b) = pure $ LBool (a < b)
 lLesserThan (LFloat a) (LFloat b) = pure $ LBool (a < b)
-lLesserThan a b = throwError $ LException $ "lesser-than is not defined for " ++ show a ++ ", " ++ show b
+lLesserThan a b = throwError $ LException $ fmt "lesser-than is not defined for %%, %%" [show a, show b]
 
 lModNumbers :: LWord -> LWord -> ExceptT LException IO LWord
 lModNumbers (LInteger a) (LInteger b) = pure $ LInteger (a `mod` b)
-lModNumbers a b = throwError $ LException $ "modulo is not defined for " ++ show a ++ ", " ++ show b
+lModNumbers a b = throwError $ LException $ fmt "modulo is not defined for %%, %%" [show a, show b]

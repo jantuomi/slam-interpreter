@@ -38,11 +38,11 @@ bootstrap args = do
   let config = getConfig initialConfig args
   fileName <- getFileName config
 
-  debugPrint config $ "executing file " ++ fileName ++ "\n"
+  debugPrint config $ fmt "executing file %%\n" [fileName]
   source <- liftIO . readFile $ fileName
   (parsedSource, strLitRefMap) <- parseSource source
-  debugPrint config $ "parsed words:\n" ++ show parsedSource ++ "\n"
-  debugPrint config $ "string literal refmap:\n" ++ show strLitRefMap ++ "\n"
+  debugPrint config $ fmt "parsed words:\n%%\n" [show parsedSource]
+  debugPrint config $ fmt "string literal refmap:\n%%\n" [show strLitRefMap]
   debugPrint config "interpreter output:"
   let initialState =
         LState
