@@ -5,13 +5,11 @@ import Data.Char
 import Data.Map (Map, (!))
 import qualified Data.Map as M
 import LTypes
-import System.IO (BufferMode (NoBuffering), hSetBuffering, stdin)
 import Utils
 
-debugWaitForChar Config {configDebugMode = mode} =
+debugWaitForChar Config {configDebugMode = mode} = do
   if mode
     then do
-      hSetBuffering stdin NoBuffering
       c <- getChar
       pure $ case c of
         'q' -> ExecExit
@@ -23,16 +21,16 @@ debugPrint Config {configDebugMode = mode} message =
     then liftIO $ putStrLn $ "[debug] " ++ message
     else pure ()
 
-interpretSource :: Config -> LState -> ExceptT LException IO ()
-interpretSource config LState {lSource = []} = pure ()
+interpretSource :: Config -> LState -> ExceptT LException IO LState
+interpretSource config state@LState {lSource = []} = pure state
 interpretSource config state@LState {lSource = (word : rest)} = do
+  liftIO $ debugPrint config $ "processing " ++ show word ++ ", current state ="
+  liftIO $ debugState config state
   newState <- interpretWord state {lSource = rest} word
-  liftIO $ debugPrint config $ "processed " ++ show word ++ ", newState ="
-  liftIO $ debugState config newState
   step <- liftIO $ debugWaitForChar config
   case step of
     ExecContinue -> interpretSource config newState
-    ExecExit -> pure ()
+    ExecExit -> pure newState
 
 interpretWord :: LState -> LWord -> ExceptT LException IO LState
 -- non-nestable structures

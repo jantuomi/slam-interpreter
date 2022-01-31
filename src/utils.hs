@@ -49,5 +49,5 @@ safeBreak cond ex = safeBreak' cond ex []
 
 safeBreak' _ ex _ [] = throwError ex
 safeBreak' cond ex acc lst@(x : xs)
-  | cond x = pure (acc, lst)
+  | cond x = pure (reverse acc, lst)
   | otherwise = safeBreak' cond ex (x : acc) xs

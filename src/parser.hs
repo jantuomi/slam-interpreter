@@ -22,13 +22,11 @@ removeComments source =
   let lines_ = lines source $> map (T.pack .> T.splitOn (T.pack "--") .> head .> T.unpack)
    in unlines lines_
 
-processStringLiterals = processStringLiterals' Nothing M.empty
-
-processStringLiterals' :: Maybe String -> Map String [LWord] -> String -> ExceptT LException IO (String, Map String [LWord])
-processStringLiterals' currentM refMap [] = case currentM of
+processStringLiterals :: Maybe String -> Map String [LWord] -> String -> ExceptT LException IO (String, Map String [LWord])
+processStringLiterals currentM refMap [] = case currentM of
   Just _ -> throwError $ LException "nonterminated string literal"
   Nothing -> pure ([], refMap)
-processStringLiterals' currentM refMap (c : source) = case c of
+processStringLiterals currentM refMap (c : source) = case c of
   '"' -> case currentM of
     Just str -> do
       -- string literal ends
@@ -36,18 +34,18 @@ processStringLiterals' currentM refMap (c : source) = case c of
       let strP = str $> map LChar .> LPhrase
       interpolated <- processSLInterpolations strP
       let newRefMap = M.insert hash interpolated refMap
-      (resSource, resRefMap) <- processStringLiterals' Nothing newRefMap source
+      (resSource, resRefMap) <- processStringLiterals Nothing newRefMap source
       pure ("##" ++ hash ++ resSource, resRefMap)
     Nothing ->
       -- string literal starts
-      processStringLiterals' (Just "") refMap source
+      processStringLiterals (Just "") refMap source
   other -> case currentM of
     Just str ->
       -- add char to current string literal
-      processStringLiterals' (Just $ str ++ [c]) refMap source
+      processStringLiterals (Just $ str ++ [c]) refMap source
     Nothing ->
       -- proceed normally
-      processStringLiterals' Nothing refMap source $> fmap (B.first (c :))
+      processStringLiterals Nothing refMap source $> fmap (B.first (c :))
 
 processSLInterpolations :: LWord -> ExceptT LException IO [LWord]
 processSLInterpolations strP@(LPhrase lChars)
@@ -73,5 +71,5 @@ processSLInterpolations p = throwError $ LException $ "non-phrase in processSLIn
 
 parseSource source = do
   let woComments = source $> removeComments
-  (woStringLiterals, stringLiteralRefMap) <- processStringLiterals woComments
+  (woStringLiterals, stringLiteralRefMap) <- processStringLiterals Nothing M.empty woComments
   pure (woStringLiterals $> words .> map parseWord, stringLiteralRefMap)

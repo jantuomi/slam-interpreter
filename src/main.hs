@@ -10,6 +10,7 @@ import LTypes
 import Parser
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
+import System.IO (BufferMode (NoBuffering), hSetBuffering, stdin)
 import Utils
 
 getConfig config [] = config
@@ -24,7 +25,7 @@ getFileName :: Config -> ExceptT LException IO String
 getFileName Config {configFileNameM = fileNameM} = do
   case fileNameM of
     Just str -> pure str
-    Nothing -> throwError $ LException "no file name specified"
+    Nothing -> throwError $ LException "no filename specified"
 
 bootstrap :: [String] -> ExceptT LException IO ()
 bootstrap args = do
@@ -33,6 +34,7 @@ bootstrap args = do
           { configFileNameM = Nothing,
             configDebugMode = False
           }
+
   let config = getConfig initialConfig args
   fileName <- getFileName config
 
@@ -51,15 +53,15 @@ bootstrap args = do
             lSource = parsedSource,
             lStrLitRefMap = strLitRefMap
           }
-  interpretSource config initialState
+  void $ interpretSource config initialState
 
 main :: IO ()
 main = do
+  hSetBuffering stdin NoBuffering
   args <- getArgs
   result <- runExceptT $ bootstrap args
   case result of
-    Left ex -> case ex of
-      LException errStr -> do
-        putStrLn $ "[error] " ++ errStr
-        exitFailure
+    Left (LException errStr) -> do
+      putStrLn $ "[error] " ++ errStr
+      exitFailure
     _ -> exitSuccess
