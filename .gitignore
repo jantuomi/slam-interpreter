@@ -2,3 +2,4 @@
 *.o
 interpreter
 .git/
+dist-newstyle/
