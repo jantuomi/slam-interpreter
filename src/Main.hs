@@ -2,6 +2,7 @@ module Main where
 
 import Control.Monad.Except
 import Data.Char
+import Data.List (intercalate)
 import Data.Map (Map, (!))
 import qualified Data.Map as M
 import Debug.Trace (trace, traceShow)
@@ -41,8 +42,14 @@ bootstrap args = do
   debugPrint config $ fmt "executing file %%\n" [fileName]
   source <- liftIO . readFile $ fileName
   (parsedSource, strLitRefMap) <- parseSource source
-  debugPrint config $ fmt "parsed words:\n%%\n" [show parsedSource]
-  debugPrint config $ fmt "string literal refmap:\n%%\n" [show strLitRefMap]
+  debugPrint config $ fmt "parsed words:\n%%\n" [parsedSource $> map show .> intercalate ", "]
+  let reprKeyValPair (k, v) = fmt "%% = %%" [k, show v]
+  debugPrint config $
+    fmt
+      "string literal refmap:\n%%\n"
+      [ strLitRefMap
+          $> M.toList .> map reprKeyValPair .> intercalate "\n"
+      ]
   debugPrint config "interpreter output:"
   let initialState =
         LState
