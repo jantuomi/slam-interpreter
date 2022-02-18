@@ -14,6 +14,8 @@ import System.Exit (exitFailure, exitSuccess)
 import System.IO (BufferMode (NoBuffering), hSetBuffering, stdin)
 import Utils
 
+-- | Parse command line options and positional arguments, and
+-- apply them to the supplied config
 getConfig config [] = config
 getConfig config ("--debug" : rest) =
   let newConfig = config {configDebugMode = True}
@@ -22,12 +24,18 @@ getConfig config (fileName : rest) =
   let newConfig = config {configFileNameM = Just fileName}
    in getConfig newConfig rest
 
+-- | Extract source file name from config. If not defined,
+-- throw Exception
 getFileName :: Config -> ExceptT LException IO String
 getFileName Config {configFileNameM = fileNameM} = do
   case fileNameM of
     Just str -> pure str
     Nothing -> throwError $ LException "no filename specified"
 
+-- | Setup config based on args,
+-- parse the source,
+-- construct initial interpreter state,
+-- and start interpreting by calling interpretSource
 bootstrap :: [String] -> ExceptT LException IO ()
 bootstrap args = do
   let initialConfig =
@@ -39,6 +47,7 @@ bootstrap args = do
   let config = getConfig initialConfig args
   fileName <- getFileName config
 
+  -- Print debug information about the parse result if in debug mode
   debugPrint config $ fmt "executing file %%\n" [fileName]
   source <- liftIO . readFile $ fileName
   (parsedSource, strLitRefMap) <- parseSource source
@@ -51,6 +60,8 @@ bootstrap args = do
           $> M.toList .> map reprKeyValPair .> intercalate "\n"
       ]
   debugPrint config "interpreter output:"
+
+  -- Construct initial state
   let initialState =
         LState
           { lDict = M.empty,
@@ -60,8 +71,13 @@ bootstrap args = do
             lSource = parsedSource,
             lStrLitRefMap = strLitRefMap
           }
+
+  -- Start interpreting source
   void $ interpretSource config initialState
 
+-- | Entrypoint: read args and call bootstrap
+-- Upon exception, the exception will be printed to stdout and the
+-- program will be terminated with a non-zero status
 main :: IO ()
 main = do
   hSetBuffering stdin NoBuffering

@@ -5,6 +5,8 @@ import Data.Map (Map)
 import qualified Data.Map as M
 import Utils
 
+-- | An LWord is a typed value that can read from the source and
+-- pushed onto the stack. LWords are the core data structure.
 data LWord
   = LSymbol String
   | LInteger Integer
@@ -16,10 +18,15 @@ data LWord
   | LPhrase [LWord]
   deriving (Show, Eq)
 
+-- | An LWordT represents the type of an 'LWord'. Each LWord has one corresponding LWordT,
+-- expect for the LWordT AnyT, which represents any LWord value.
 data LWordT = LSymbolT | LIntegerT | LFloatT | LBoolT | LCharT | LLabelT | LPhraseT | AnyT deriving (Show)
 
+-- | Produce an exception referencing an expected 'LWordT' and the encountered 'LWord'
 consumeErr wordT word = LException $ "expected " ++ show wordT ++ ", encountered " ++ show word
 
+-- | Attempt to consume one 'LWord' from the supplied stack. If the word at the top of the stack matches
+-- the supplied 'LWordT', return that word and the updated stack. If not, return an exception.
 consume1 :: LWordT -> [LWord] -> ExceptT LException IO (LWord, [LWord])
 consume1 wordT [] =
   throwError $ LException $ "expected " ++ show wordT ++ ", encountered empty stack"
@@ -39,12 +46,14 @@ consume1 wordT@LLabelT (word : stack') =
 consume1 wordT@LPhraseT (word : stack') =
   case word of LPhrase _ -> pure (word, stack'); _ -> throwError $ consumeErr wordT word
 
+-- | Invokes 'consume1' twice.
 consume2 :: LWordT -> LWordT -> [LWord] -> ExceptT LException IO (LWord, LWord, [LWord])
 consume2 wordT1 wordT2 stack = do
   (ret1, stack1) <- consume1 wordT1 stack
   (ret2, stack2) <- consume1 wordT2 stack1
   pure (ret1, ret2, stack2)
 
+-- | Invokes 'consume1' three times.
 consume3 :: LWordT -> LWordT -> LWordT -> [LWord] -> ExceptT LException IO (LWord, LWord, LWord, [LWord])
 consume3 wordT1 wordT2 wordT3 stack = do
   (ret1, stack1) <- consume1 wordT1 stack
@@ -52,6 +61,7 @@ consume3 wordT1 wordT2 wordT3 stack = do
   (ret3, stack3) <- consume1 wordT3 stack2
   pure (ret1, ret2, ret3, stack3)
 
+-- | Convert an 'LWord' to a string representation.
 reprWord :: LWord -> String
 reprWord (LSymbol a) = a
 reprWord (LInteger a) = show a
@@ -62,6 +72,11 @@ reprWord (LLabel a) = a
 reprWord (LStringLitRef a) = "StrLit(" ++ a ++ ")"
 reprWord (LPhrase a) = "P[ " ++ map reprWord a $> unwords ++ " ]"
 
+-- | Represents the interpreter state. The state changes one processed 'LWord' at a time.
+-- Contains:
+-- * 'lDict': A mapping from 'LLabel' string values to 'LWord'. Used for storing variables.
+-- * 'lStack': A list of 'LWord's, representing the global stack. The first element is the top of the stack.
+-- * 'lDefs': A mapping from 'LSymbol' string values to phrases of 'LWord's. Used for defining custom words.
 data LState = LState
   { lDict :: Map String LWord,
     lStack :: [LWord],
