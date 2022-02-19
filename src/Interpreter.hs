@@ -7,6 +7,8 @@ import qualified Data.Map as M
 import LTypes
 import Utils
 
+-- | Wait for unbuffered input (any key) from stdin. If 'q', return 'ExecExit', otherwise 'ExecContinue'.
+-- If not in debug mode, immediately return 'ExecContinue' without waiting.
 debugWaitForChar Config {configDebugMode = mode} = do
   if mode
     then do
@@ -16,11 +18,13 @@ debugWaitForChar Config {configDebugMode = mode} = do
         _ -> ExecContinue
     else pure ExecContinue
 
+-- | If in debug mode, print the supplied message, automatically prefixed with "[debug]". Otherwise, no op.
 debugPrint Config {configDebugMode = mode} message =
   if mode
     then liftIO $ putStrLn $ fmt "[debug] %%" [message]
     else pure ()
 
+-- |
 interpretSource :: Config -> LState -> ExceptT LException IO LState
 interpretSource config state@LState {lSource = []} = pure state
 interpretSource config state@LState {lSource = (word : rest)} = do

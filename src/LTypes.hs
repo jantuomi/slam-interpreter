@@ -61,7 +61,7 @@ consume3 wordT1 wordT2 wordT3 stack = do
   (ret3, stack3) <- consume1 wordT3 stack2
   pure (ret1, ret2, ret3, stack3)
 
--- | Convert an 'LWord' to a string representation.
+-- | Convert 'LWord' contents to a user-friendly string representation.
 reprWord :: LWord -> String
 reprWord (LSymbol a) = a
 reprWord (LInteger a) = show a
@@ -75,8 +75,14 @@ reprWord (LPhrase a) = "P[ " ++ map reprWord a $> unwords ++ " ]"
 -- | Represents the interpreter state. The state changes one processed 'LWord' at a time.
 -- Contains:
 -- * 'lDict': A mapping from 'LLabel' string values to 'LWord'. Used for storing variables.
--- * 'lStack': A list of 'LWord's, representing the global stack. The first element is the top of the stack.
+-- * 'lStack': A list of 'LWord's, representing the global stack. The head is the top of the stack.
+-- * 'lPhraseDepth': A number representing how many layers deep the current phrase context is. If zero (no phrase),
+--    words are immediately evaluated when encountered.
 -- * 'lDefs': A mapping from 'LSymbol' string values to phrases of 'LWord's. Used for defining custom words.
+-- * 'lSource': A list of words yet to be processed. The head will be processed first.
+-- * 'lStrLitRefMap': A map from string (hash digest) to list of words. String literals in the source code
+--   are replaced by a hash that is replaced with the refmap content upon evaluation. The refmap is populated
+--   during parsing (literal desugaring).
 data LState = LState
   { lDict :: Map String LWord,
     lStack :: [LWord],
@@ -87,6 +93,7 @@ data LState = LState
   }
   deriving (Show)
 
+-- | Represents command line options and arguments, provided by the user.
 data Config = Config
   { configFileNameM :: Maybe String,
     configDebugMode :: Bool
@@ -94,6 +101,7 @@ data Config = Config
 
 data ExecStep = ExecContinue | ExecExit
 
+-- | If in debug mode, dump state to stdout. Otherwise, no op.
 debugState Config {configDebugMode = mode} state =
   if mode
     then do
